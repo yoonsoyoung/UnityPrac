@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.AI;
 
 public class EnemyFSM : MonoBehaviour
 {
@@ -10,7 +12,9 @@ public class EnemyFSM : MonoBehaviour
         Idle,
         Move,
         Attack,
-        Return
+        Return,
+        Damaged,
+        Die
     }
 
     // Enemy 상태 변수
@@ -42,8 +46,21 @@ public class EnemyFSM : MonoBehaviour
     // 이동 가능 범위
     public float moveDistance = 20;
 
+    // 에너미의 체력
+    public int hp = 15;
+
+    // 에너미의 최대 체력
+    int maxHp = 15;
+
+    // 에너미 hp Slider 변수
+    public Slider hpSlider;
+
+
     // 애니메이터 변수
     Animator anim;
+
+    // 네비게이션 에이전트 변수
+    NavMeshAgent smith;
 
     void Start()
     {
@@ -58,6 +75,9 @@ public class EnemyFSM : MonoBehaviour
 
         // 자식 오브젝트로부터 애니메이터 변수를 받아옴
         anim = transform.GetComponentInChildren<Animator>(); // Enemy의 자식으로 Zombie가 있기 때문에
+
+        // 네비게이션 에이전트 컴포넌트 받아오기
+        smith = GetComponent<NavMeshAgent>();
     }
 
     // Update is called once per frame
@@ -78,7 +98,15 @@ public class EnemyFSM : MonoBehaviour
             case EnemyState.Return:
                 Return();
                 break;
+            case EnemyState.Damaged:
+                //Damaged();
+                break;
+            case EnemyState.Die:
+                //Die();
+                break;
         }
+        // 현재 hp(%)를 hp 슬라이더의 value에 반영한다.
+        hpSlider.value = (float)hp / (float)maxHp;
     }
 
     void Idle()
@@ -117,6 +145,15 @@ public class EnemyFSM : MonoBehaviour
 
             // 플레이어를 향해 방향 전환
             transform.forward = dir;
+
+            // 네비게이션 에이전트 컴포넌트를 활성화한다.
+            //smith.enabled = true;
+
+            // 네비게이션으로 접근하는 최소 거리를 공격 가능 거리로 설정한다.
+            smith.stoppingDistance = attackDistance;
+
+            // 네비게이션 목적지를 플레이어의 위치로 설정한다.
+            smith.destination = player.position;
         }
 
         // 공격 범위가 되면, 현재 상태를 공격으로 변환
@@ -126,6 +163,13 @@ public class EnemyFSM : MonoBehaviour
             print("상태 변환 : Move > Attack");
             // 누적 시간을 공격 딜레이만큼 미리 실행
             currentTime = attackDelay;
+
+            // 공격 대기 애니메이션 플레이
+            anim.SetTrigger("MoveToAttackDelay");
+
+            // 네비게이션 에이전트의 이동을 멈추고 경로를 초기화한다.
+            smith.isStopped = true;
+            smith.ResetPath();
         }
     }
 
@@ -142,6 +186,9 @@ public class EnemyFSM : MonoBehaviour
                 {
                     print("공격");
                     currentTime = 0;
+
+                    // 공격 애니메이션 플레이
+                    anim.SetTrigger("StartAttack");
                 }
             }
         }
@@ -152,6 +199,9 @@ public class EnemyFSM : MonoBehaviour
             m_State = EnemyState.Move;
             print("상태 전환 : Attack -> Move");
             currentTime = 0;
+
+            // 이동 애니메이션 플레이
+            anim.SetTrigger("AttackToMove");
         }
     }
 
@@ -165,6 +215,12 @@ public class EnemyFSM : MonoBehaviour
 
             // 복귀 지점으로 방향 전환
             transform.forward = dir;
+
+            // 네비게이션 목적지를 초기 저장된 위치로 설정한다.
+            smith.destination = originPos;
+
+            // 네비게이션으로 접근하는 최소 거리를 0으로 설정한다.
+            smith.stoppingDistance = 0;
         }
         // 그렇지 않다면 자신의 위치를 초기 위치로 조정하고 현재 상태를 대기로 전환
         else
@@ -174,8 +230,86 @@ public class EnemyFSM : MonoBehaviour
             m_State = EnemyState.Idle;
             print("상태 전환 : Return -> Idle");
 
+            // hp를 다시 회복한다.
+            hp = maxHp;
+
             // 대기 애니메이션으로 전환하는 트랜지션 호출
             anim.SetTrigger("MoveToIdle");
         }
+    }
+    // 데미지 실행 함수
+    public void HitEnemy(int hitPower)
+    {
+        // 만일, 이미 피격 상태이거나 사망 상태 또는 복귀 상태라면 아무런 처리도 하지 않고 함수를 종료한다.
+        if (m_State == EnemyState.Damaged || m_State == EnemyState.Die || m_State == EnemyState.Return)
+        {
+            return;
+        }
+
+        // 플레이어의 공격력만큼 에너미의 체력을 감소시킨다.
+        hp -= hitPower;
+
+        // 네비게이션 에이전트의 이동을 멈추고 경로를 초기화한다.
+        smith.isStopped = true;
+        smith.ResetPath();
+
+        // 에너미의 체력이 0보다 크면 피격 상태로 전환한다.
+        if (hp > 0)
+        {
+            m_State = EnemyState.Damaged;
+            print("상태 전환: Any state -> Damaged");
+
+            // 피격 애니메이션을 플레이한다.
+            anim.SetTrigger("Damaged");
+            Damaged();
+        }
+        // 그렇지 않다면, 죽음 상태로 전환한다.
+        else
+        {
+            m_State = EnemyState.Die;
+            print("상태 전환: Any state -> Die");
+
+            // 죽음 애니메이션을 플레이한다.
+            anim.SetTrigger("Die");
+            Die();
+        }
+    }
+
+    void Damaged()
+    {
+        // 피격 상태를 처리하기 위한 코루틴을 실행한다.
+        StartCoroutine(DamageProcess());
+    }
+
+    // 데미지 처리용 코루틴 함수
+    IEnumerator DamageProcess()
+    {
+        // 피격 모션 시간만큼 기다린다.
+        yield return new WaitForSeconds(1f);
+
+        // 현재 상태를 이동 상태로 전환한다.
+        m_State = EnemyState.Move;
+        print("상태 전환: Damaged -> Move");
+    }
+
+    // 죽음 상태 함수
+    void Die()
+    {
+        // 진행중인 피격 코루틴을 중지한다.
+        StopAllCoroutines();
+
+        // 죽음 상태를 처리하기 위한 코루틴을 실행한다.
+        StartCoroutine(DieProcess());
+    }
+
+    IEnumerator DieProcess()
+    {
+        // 캐릭터 콘트롤러 컴포넌트를 비활성화한다.
+        cc.enabled = false;
+
+        // 2초 동안 기다린 뒤에 자기 자신을 제거한다.
+        yield return new WaitForSeconds(2f);
+        print("소멸!");
+        Destroy(gameObject);
     }
 }
