@@ -1,5 +1,5 @@
 sceneSetups:
-- path: Assets/Scenes/SampleScene.unity
+- path: Assets/Samples/WebRTC/2.4.0-exp.4/Example/VideoReceive/VideoReceive.unity
   isLoaded: 1
   isActive: 1
   isSubScene: 0
